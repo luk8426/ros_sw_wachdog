@@ -27,6 +27,7 @@
 #include "sw_watchdog_msgs/msg/heartbeat.hpp"
 #include "sw_watchdog_msgs/msg/status.hpp"
 #include "sw_watchdog/visibility_control.h"
+// #include <message_filters/subscriber.h>
 
 using namespace std::chrono_literals;
 
@@ -97,6 +98,12 @@ public:
         }
     }
 
+    void cache_callback(const sw_watchdog_msgs::msg::Heartbeat message)
+    {   
+        RCLCPP_INFO(get_logger(), "CacheCallback triggert");
+        RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message.checkpoint_id);
+    }
+
     /// Publish lease expiry of the watched entity
     void publish_status()
     {
@@ -164,6 +171,12 @@ public:
                 heartbeat_sub_options_);
         }
 
+        // Configuration of the Cache
+        heartbeat_cache_sub.subscribe(this, topic_name_);
+        heartbeat_cache = message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat>(heartbeat_cache_sub, 100);
+
+        heartbeat_cache.registerCallback(std::bind(&SimpleWatchdog::cache_callback, this, sw_watchdog_msgs::msg::Heartbeat));
+
         // Starting from this point, all messages are sent to the network.
         if (enable_pub_)
             status_pub_->on_activate();
@@ -216,6 +229,9 @@ private:
     /// The lease duration granted to the remote (heartbeat) publisher
     std::chrono::milliseconds lease_duration_;
     rclcpp::Subscription<sw_watchdog_msgs::msg::Heartbeat>::SharedPtr heartbeat_sub_ = nullptr;
+    // A seperate Message Filters Subscription is requiered for the Cache
+    message_filters::subscriber<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache_sub;
+    message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache; 
     /// Publish lease expiry for the watched entity
     // By default, a lifecycle publisher is inactive by creation and has to be activated to publish.
     std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sw_watchdog_msgs::msg::Status>> status_pub_ = nullptr;
