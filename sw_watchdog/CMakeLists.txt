@@ -16,6 +16,7 @@ find_package(lifecycle_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(sw_watchdog_msgs REQUIRED)
+find_package(message_filters REQUIRED)
 
 
 include_directories(
@@ -35,6 +36,7 @@ ament_target_dependencies(${PROJECT_NAME}
   "rclcpp_components"
   "rcutils"
   "sw_watchdog_msgs"
+  "message_filters"
 )
 target_compile_definitions(${PROJECT_NAME}
   PRIVATE "SW_WATCHDOG_BUILDING_DLL")

@@ -27,7 +27,8 @@
 #include "sw_watchdog_msgs/msg/heartbeat.hpp"
 #include "sw_watchdog_msgs/msg/status.hpp"
 #include "sw_watchdog/visibility_control.h"
-// #include <message_filters/subscriber.h>
+#include "message_filters/subscriber.h"
+#include "message_filters/cache.h"
 
 using namespace std::chrono_literals;
 
@@ -230,7 +231,7 @@ private:
     std::chrono::milliseconds lease_duration_;
     rclcpp::Subscription<sw_watchdog_msgs::msg::Heartbeat>::SharedPtr heartbeat_sub_ = nullptr;
     // A seperate Message Filters Subscription is requiered for the Cache
-    message_filters::subscriber<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache_sub;
+    message_filters::Subscriber<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache_sub;
     message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache; 
     /// Publish lease expiry for the watched entity
     // By default, a lifecycle publisher is inactive by creation and has to be activated to publish.
