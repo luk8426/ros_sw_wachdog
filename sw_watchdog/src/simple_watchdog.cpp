@@ -173,10 +173,10 @@ public:
         }
 
         // Configuration of the Cache
-        heartbeat_cache_sub.subscribe(this, topic_name_);
-        heartbeat_cache = message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat>(heartbeat_cache_sub, 100);
+        //heartbeat_cache_sub.subscribe(this, topic_name_);
+        //heartbeat_cache = message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat>(heartbeat_cache_sub, 100);
 
-        heartbeat_cache.registerCallback(std::bind(&SimpleWatchdog::cache_callback, this, sw_watchdog_msgs::msg::Heartbeat));
+        //heartbeat_cache.registerCallback(std::bind(&SimpleWatchdog::cache_callback, this, sw_watchdog_msgs::msg::Heartbeat));
 
         // Starting from this point, all messages are sent to the network.
         if (enable_pub_)
