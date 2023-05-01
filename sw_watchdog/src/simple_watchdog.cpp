@@ -111,12 +111,17 @@ public:
     
     bool check_messages_in_cache(uint16_t* lost_message){
         auto messages_in_cache = heartbeat_cache.getInterval(heartbeat_cache.getOldestTime(), heartbeat_cache.getLatestTime());
+        RCLCPP_INFO(get_logger(), "Size of cache vecor [%ld]", messages_in_cache.size());
+        //RCLCPP_INFO(get_logger(), messages_in_cache);
         for (std::shared_ptr<const sw_watchdog_msgs::msg::Heartbeat> message : messages_in_cache){
+            RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message->checkpoint_id);
+            /*        
             if (message->checkpoint_id == *lost_message)
                 return true;
             else 
-                return false;
+                return false;*/
         }
+        return false;
     }
 
     /// Publish lease expiry of the watched entity
@@ -124,7 +129,7 @@ public:
     {
         auto msg = std::make_unique<sw_watchdog_msgs::msg::Status>();
         rclcpp::Time now = this->get_clock()->now();
-        msg->stamp = now;
+        msg->header.stamp = now;
         msg->missed_number = lost_message;
 
         // Print the current state for demo purposes
@@ -183,7 +188,7 @@ public:
                 topic_name_,
                 qos_profile_,
                 [this](const typename sw_watchdog_msgs::msg::Heartbeat::SharedPtr msg) -> void {
-                    RCLCPP_INFO(get_logger(), "Watchdog raised, heartbeat sent at [%d.x]", msg->stamp.sec);
+                    RCLCPP_INFO(get_logger(), "Watchdog raised, heartbeat sent at [%d.x]", msg->header.stamp.sec);
                 },
                 heartbeat_sub_options_);
         }

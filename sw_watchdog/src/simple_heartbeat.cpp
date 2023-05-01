@@ -93,14 +93,17 @@ public:
 private:
     void timer_callback()
     {
+        test_cnt = (test_cnt + 1)%10;
         auto message = sw_watchdog_msgs::msg::Heartbeat();
         rclcpp::Time now = this->get_clock()->now();
-        message.stamp = now;
+        message.header.stamp = now;
+        message.checkpoint_id = test_cnt;
         RCLCPP_INFO(this->get_logger(), "Publishing heartbeat, sent at [%f]", now.seconds());
         publisher_->publish(message);
     }
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::Publisher<sw_watchdog_msgs::msg::Heartbeat>::SharedPtr publisher_;
+    int test_cnt = 0;
 };
 
 }  // namespace sw_watchdog
