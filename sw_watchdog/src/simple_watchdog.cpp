@@ -85,6 +85,10 @@ public:
             std::exit(0);
         }
 
+        // Configuration of the Cache
+        heartbeat_cache_sub.subscribe((rclcpp::Node*)this, topic_name_);
+        message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache(heartbeat_cache_sub, 100);
+
         // Lease duration must be >= heartbeat's lease duration
         lease_duration_ = std::chrono::milliseconds(std::stoul(args[1]));
 
@@ -104,28 +108,38 @@ public:
         RCLCPP_INFO(get_logger(), "CacheCallback triggert");
         RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message.checkpoint_id);
     }
+    
+    bool check_messages_in_cache(uint16_t* lost_message){
+        auto messages_in_cache = heartbeat_cache.getInterval(heartbeat_cache.getOldestTime(), heartbeat_cache.getLatestTime());
+        for (std::shared_ptr<const sw_watchdog_msgs::msg::Heartbeat> message : messages_in_cache){
+            if (message->checkpoint_id == *lost_message)
+                return true;
+            else 
+                return false;
+        }
+    }
 
     /// Publish lease expiry of the watched entity
-    void publish_status()
+    void publish_failure(uint16_t lost_message)
     {
         auto msg = std::make_unique<sw_watchdog_msgs::msg::Status>();
         rclcpp::Time now = this->get_clock()->now();
         msg->stamp = now;
-        msg->missed_number = 1;
+        msg->missed_number = lost_message;
 
         // Print the current state for demo purposes
-        if (!status_pub_->is_activated()) {
+        if (!failure_pub_->is_activated()) {
             RCLCPP_INFO(get_logger(),
                         "Lifecycle publisher is currently inactive. Messages are not published.");
         } else {
             RCLCPP_INFO(get_logger(),
-                        "Publishing lease expiry (missed count: %u) at [%f]",
+                        "Publishing failure message. Faulty node was with ID %u at [%f] seconds",
                         msg->missed_number, now.seconds());
         }
 
         // Only if the publisher is in an active state, the message transfer is
         // enabled and the message actually published.
-        status_pub_->publish(std::move(msg));
+        failure_pub_->publish(std::move(msg));
     }
 
     /// Transition callback for state configuring
@@ -144,15 +158,17 @@ public:
                 printf("  not_alive_count: %d\n", event.not_alive_count);
                 printf("  alive_count_change: %d\n", event.alive_count_change);
                 printf("  not_alive_count_change: %d\n", event.not_alive_count_change);
-                if(event.alive_count == 0) {
-                    publish_status();
-                    // Transition lifecycle to deactivated state
-                    deactivate();
+                if(event.alive_count_change <= 0) {
+                    uint16_t lost_message;
+                    // Check which message got lost in the cache
+                    if(!check_messages_in_cache(&lost_message)){
+                        publish_failure(lost_message);
+                    }
                 }
             };
 
         if(enable_pub_)
-            status_pub_ = create_publisher<sw_watchdog_msgs::msg::Status>("status", 1); /* QoS history_depth */
+            failure_pub_ = create_publisher<sw_watchdog_msgs::msg::Status>("failure", 1); /* QoS history_depth */
 
         RCUTILS_LOG_INFO_NAMED(get_name(), "on_configure() is called.");
         return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
@@ -172,15 +188,12 @@ public:
                 heartbeat_sub_options_);
         }
 
-        // Configuration of the Cache
-        //heartbeat_cache_sub.subscribe(this, topic_name_);
-        //heartbeat_cache = message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat>(heartbeat_cache_sub, 100);
-
+        heartbeat_cache.registerCallback(&SimpleWatchdog::cache_callback, this); // Uncertain if even required
         //heartbeat_cache.registerCallback(std::bind(&SimpleWatchdog::cache_callback, this, sw_watchdog_msgs::msg::Heartbeat));
 
         // Starting from this point, all messages are sent to the network.
         if (enable_pub_)
-            status_pub_->on_activate();
+            failure_pub_->on_activate();
 
         // Starting from this point, all messages are sent to the network.
         RCUTILS_LOG_INFO_NAMED(get_name(), "on_activate() is called.");
@@ -196,7 +209,7 @@ public:
 
         // Starting from this point, all messages are no longer sent to the network.
         if(enable_pub_)
-            status_pub_->on_deactivate();
+            failure_pub_->on_deactivate();
 
         RCUTILS_LOG_INFO_NAMED(get_name(), "on_deactivate() is called.");
 
@@ -207,7 +220,7 @@ public:
     rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn on_cleanup(
         const rclcpp_lifecycle::State &)
     {
-        status_pub_.reset();
+        failure_pub_.reset();
         RCUTILS_LOG_INFO_NAMED(get_name(), "on cleanup is called.");
 
         return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
@@ -219,7 +232,7 @@ public:
     {
         heartbeat_sub_.reset();
         heartbeat_sub_ = nullptr;
-        status_pub_.reset();
+        failure_pub_.reset();
 
         RCUTILS_LOG_INFO_NAMED(get_name(), "on shutdown is called from state %s.", state.label().c_str());
 
@@ -235,7 +248,7 @@ private:
     message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache; 
     /// Publish lease expiry for the watched entity
     // By default, a lifecycle publisher is inactive by creation and has to be activated to publish.
-    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sw_watchdog_msgs::msg::Status>> status_pub_ = nullptr;
+    std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<sw_watchdog_msgs::msg::Status>> failure_pub_ = nullptr;
     /// Whether to enable the watchdog on startup. Otherwise, lifecycle transitions have to be raised.
     bool autostart_;
     /// Whether a lease expiry should be published
