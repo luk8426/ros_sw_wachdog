@@ -87,7 +87,9 @@ public:
 
         // Configuration of the Cache
         heartbeat_cache_sub.subscribe((rclcpp::Node*)this, topic_name_);
-        message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache(heartbeat_cache_sub, 100);
+        heartbeat_cache.setCacheSize(100);
+        heartbeat_cache.connectInput(heartbeat_cache_sub);
+        //message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache(heartbeat_cache_sub, 100);
 
         // Lease duration must be >= heartbeat's lease duration
         lease_duration_ = std::chrono::milliseconds(std::stoul(args[1]));
@@ -111,15 +113,16 @@ public:
     
     bool check_messages_in_cache(uint16_t* lost_message){
         auto messages_in_cache = heartbeat_cache.getInterval(heartbeat_cache.getOldestTime(), heartbeat_cache.getLatestTime());
-        RCLCPP_INFO(get_logger(), "Size of cache vecor [%ld]", messages_in_cache.size());
+        //RCLCPP_INFO(get_logger(), "Size of cache vecor [%ld]", messages_in_cache.size());
         //RCLCPP_INFO(get_logger(), messages_in_cache);
         for (std::shared_ptr<const sw_watchdog_msgs::msg::Heartbeat> message : messages_in_cache){
-            RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message->checkpoint_id);
-            /*        
-            if (message->checkpoint_id == *lost_message)
+            //RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message->checkpoint_id);
+            if (message->checkpoint_id != (*(&(*(message))-1)).checkpoint_id+1){
+                *lost_message = message->checkpoint_id;
                 return true;
+            }
             else 
-                return false;*/
+                return false;
         }
         return false;
     }
@@ -131,8 +134,11 @@ public:
         rclcpp::Time now = this->get_clock()->now();
         msg->header.stamp = now;
         msg->missed_number = lost_message;
-
-        // Print the current state for demo purposes
+        RCLCPP_INFO(get_logger(),
+                        "Publishing failure message. Faulty node was with ID %u at [%f] seconds",
+                        msg->missed_number, now.seconds());
+        // Print the current state for demo purposes 
+        /*
         if (!failure_pub_->is_activated()) {
             RCLCPP_INFO(get_logger(),
                         "Lifecycle publisher is currently inactive. Messages are not published.");
@@ -140,7 +146,7 @@ public:
             RCLCPP_INFO(get_logger(),
                         "Publishing failure message. Faulty node was with ID %u at [%f] seconds",
                         msg->missed_number, now.seconds());
-        }
+        }*/
 
         // Only if the publisher is in an active state, the message transfer is
         // enabled and the message actually published.

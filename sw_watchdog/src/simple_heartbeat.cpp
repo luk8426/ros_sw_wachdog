@@ -93,7 +93,8 @@ public:
 private:
     void timer_callback()
     {
-        test_cnt = (test_cnt + 1)%10;
+        test_cnt = (test_cnt + 1)%1000;
+        if (test_cnt==22) return;
         auto message = sw_watchdog_msgs::msg::Heartbeat();
         rclcpp::Time now = this->get_clock()->now();
         message.header.stamp = now;
