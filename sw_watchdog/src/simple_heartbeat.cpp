@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <chrono>
+#include <ctime>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rcutils/cmdline_parser.h"
@@ -54,7 +55,9 @@ public:
     explicit SimpleHeartbeat(rclcpp::NodeOptions options)
         : Node("simple_heartbeat", options.start_parameter_event_publisher(false).
                                            start_parameter_services(false))
-    {
+    {   
+        std::srand(std::time(nullptr)); // use current time as seed for random generator
+        test_id = std::rand();
         declare_parameter("period", 10);
 
         const std::vector<std::string>& args = this->get_node_options().arguments();
@@ -91,14 +94,19 @@ public:
     }
 
 private:
+    int test_id;
     void timer_callback()
     {
         test_cnt = (test_cnt + 1)%1000;
-        if (test_cnt==22) return;
+        if (test_cnt%10 == 0) {
+            RCLCPP_INFO(this->get_logger(), "Skipped cycle");
+            return;
+        }
         auto message = sw_watchdog_msgs::msg::Heartbeat();
         rclcpp::Time now = this->get_clock()->now();
         message.header.stamp = now;
-        message.checkpoint_id = test_cnt;
+        message.checkpoint_id = test_id;
+        message.msg_nr = test_cnt;
         RCLCPP_INFO(this->get_logger(), "Publishing heartbeat, sent at [%f]", now.seconds());
         publisher_->publish(message);
     }

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <atomic>
 #include <iostream>
+#include <map>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rcutils/cmdline_parser.h"
@@ -80,14 +81,12 @@ public:
 
         if(args.size() < 2 || rcutils_cli_option_exist(&cargs[0], &cargs[0] + cargs.size(), "-h")) {
             print_usage();
-            // TODO: Update the rclcpp_components template to be able to handle
-            // exceptions. Raise one here, so stack unwinding happens gracefully.
             std::exit(0);
         }
 
         // Configuration of the Cache
         heartbeat_cache_sub.subscribe((rclcpp::Node*)this, topic_name_);
-        heartbeat_cache.setCacheSize(100);
+        heartbeat_cache.setCacheSize(25);
         heartbeat_cache.connectInput(heartbeat_cache_sub);
         //message_filters::Cache<sw_watchdog_msgs::msg::Heartbeat> heartbeat_cache(heartbeat_cache_sub, 100);
 
@@ -107,33 +106,61 @@ public:
 
     void cache_callback(const sw_watchdog_msgs::msg::Heartbeat message)
     {   
-        RCLCPP_INFO(get_logger(), "CacheCallback triggert");
+        //RCLCPP_INFO(get_logger(), "CacheCallback triggert");
         RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message.checkpoint_id);
     }
     
-    bool check_messages_in_cache(uint16_t* lost_message){
+    bool check_messages_in_cache(sw_watchdog_msgs::msg::Heartbeat* lost_message){
         auto messages_in_cache = heartbeat_cache.getInterval(heartbeat_cache.getOldestTime(), heartbeat_cache.getLatestTime());
-        //RCLCPP_INFO(get_logger(), "Size of cache vecor [%ld]", messages_in_cache.size());
-        //RCLCPP_INFO(get_logger(), messages_in_cache);
+        std::map<int, std::vector<sw_watchdog_msgs::msg::Heartbeat>> node_id_list;
         for (std::shared_ptr<const sw_watchdog_msgs::msg::Heartbeat> message : messages_in_cache){
-            //RCLCPP_INFO(get_logger(), "Put message with ID %d in cache", message->checkpoint_id);
-            if (message->checkpoint_id != (*(&(*(message))-1)).checkpoint_id+1){
-                *lost_message = message->checkpoint_id;
-                return true;
+            if (node_id_list.count(message->checkpoint_id)==0){
+                std::vector<sw_watchdog_msgs::msg::Heartbeat> msg_vec;
+                msg_vec.push_back(*message);
+                node_id_list.insert({message->checkpoint_id, msg_vec});
             }
-            else 
-                return false;
+            else{
+                node_id_list.at(message->checkpoint_id).push_back(*message);
+            }
         }
+        std::map<int, uint64_t> node_avg_time_inervall_map;
+        for (std::pair<const int, std::vector<sw_watchdog_msgs::msg::Heartbeat>> node_and_msgs_in_cache : node_id_list){
+            std::vector<uint64_t> intervall_between_msgs;
+            size_t i = 1;
+            while(i<node_and_msgs_in_cache.second.size()){
+                intervall_between_msgs.push_back(
+                    // Check if uint64_t is large enough
+                    (node_and_msgs_in_cache.second[i].header.stamp.sec-node_and_msgs_in_cache.second[i].header.stamp.sec)*1000000000 +
+                    (node_and_msgs_in_cache.second[i-1].header.stamp.nanosec-node_and_msgs_in_cache.second[i-1].header.stamp.nanosec)
+                    );
+                i++;
+            }
+            // Check if a special treatment is required for the case that only one message for a id is in cache
+            uint64_t avg_intervall_between_msgs = std::accumulate(intervall_between_msgs.begin(), intervall_between_msgs.end(), 0.0) / intervall_between_msgs.size();
+            node_avg_time_inervall_map.insert({node_and_msgs_in_cache.first, avg_intervall_between_msgs});
+        }
+        std::pair<const int, uint64_t> result = std::pair<const int, uint64_t>(-1, 10000000000);
+        rclcpp::Time now = this->get_clock()->now();
+        for (std::pair<const int, uint64_t> node_intervall_pair : node_avg_time_inervall_map){
+            uint64_t diff_last_msg_to_now =
+                (now.seconds() - node_id_list.at(node_intervall_pair.first).back().header.stamp.sec)*1000000000 +
+                (now.seconds() - node_id_list.at(node_intervall_pair.first).back().header.stamp.sec);
+            if(diff_last_msg_to_now < result.second){     
+                // Warning here that the parameter is not used   
+                std::pair<const int, uint64_t> result = std::pair<const int, uint64_t>(node_intervall_pair.first, diff_last_msg_to_now);
+            }
+        }
+        *lost_message = node_id_list.at(result.first).back();
         return false;
     }
 
     /// Publish lease expiry of the watched entity
-    void publish_failure(uint16_t lost_message)
+    void publish_failure(sw_watchdog_msgs::msg::Heartbeat lost_message)
     {
         auto msg = std::make_unique<sw_watchdog_msgs::msg::Status>();
         rclcpp::Time now = this->get_clock()->now();
         msg->header.stamp = now;
-        msg->missed_number = lost_message;
+        msg->missed_number = lost_message.checkpoint_id;
         RCLCPP_INFO(get_logger(),
                         "Publishing failure message. Faulty node was with ID %u at [%f] seconds",
                         msg->missed_number, now.seconds());
@@ -170,7 +197,7 @@ public:
                 printf("  alive_count_change: %d\n", event.alive_count_change);
                 printf("  not_alive_count_change: %d\n", event.not_alive_count_change);
                 if(event.alive_count_change <= 0) {
-                    uint16_t lost_message;
+                    sw_watchdog_msgs::msg::Heartbeat lost_message;
                     // Check which message got lost in the cache
                     if(!check_messages_in_cache(&lost_message)){
                         publish_failure(lost_message);
@@ -194,7 +221,7 @@ public:
                 topic_name_,
                 qos_profile_,
                 [this](const typename sw_watchdog_msgs::msg::Heartbeat::SharedPtr msg) -> void {
-                    RCLCPP_INFO(get_logger(), "Watchdog raised, heartbeat sent at [%d.x]", msg->header.stamp.sec);
+                    RCLCPP_INFO(get_logger(), "Watchdog raised, heartbeat sent at %d seconds", msg->header.stamp.sec);
                 },
                 heartbeat_sub_options_);
         }

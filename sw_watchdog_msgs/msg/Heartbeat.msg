@@ -8,3 +8,4 @@ builtin_interfaces/Time stamp
 
 # The unique identifier of the active checkpoint.
 uint16 checkpoint_id 0
+uint16 msg_nr 1
